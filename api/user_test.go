@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"fmt"
+	"reflect"
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
@@ -15,6 +17,30 @@ import (
 	db "github.com/techschool/simplebank/db/sqlc"
 	"github.com/techschool/simplebank/util"
 )
+
+type eqCreateUserParamsMatcher struct {
+	arg      db.CreateUserParams
+	password string
+}
+func (e eqCreateUserParamsMatcher) Matches(x interface{}) bool {
+	arg, ok := x.(db.CreateUserParams)
+	if !ok {
+		return false
+	}
+	err := util.CheckPassword(e.password, arg.HashedPassword)
+	if err != nil {
+		return false
+	}
+	e.arg.HashedPassword = arg.HashedPassword
+	return reflect.DeepEqual(e.arg, arg)
+}
+func (e eqCreateUserParamsMatcher) String() string {
+	return fmt.Sprintf("matches arg %v and password %v", e.arg, e.password)
+}
+func EqCreateUserParams(arg db.CreateUserParams, password string) gomock.Matcher {
+	return eqCreateUserParamsMatcher{arg, password}
+}
+
 func TestCreateUserAPI(t *testing.T) {
 	user, password := randomUser(t)
 	testCases := []struct {
@@ -32,8 +58,13 @@ func TestCreateUserAPI(t *testing.T) {
 				"email":     user.Email,
 			},
 			buildStubs: func(store *mockdb.MockStore) {
+				arg := db.CreateUserParams{
+					Username: user.Username,
+					FullName: user.FullName,
+					Email:    user.Email,
+				}
 				store.EXPECT().
-					CreateUser(gomock.Any(), gomock.Any()).
+				CreateUser(gomock.Any(), EqCreateUserParams(arg, password)).
 					Times(1).
 					Return(user, nil)
 			},
